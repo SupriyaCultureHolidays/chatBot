@@ -1,0 +1,573 @@
+================================================================================
+                    AI TRAVEL CHATBOT - PROJECT DOCUMENTATION
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+Project Name: AI Travel Chatbot (botSupriya)
+Type: Full-stack AI-powered chatbot application
+Purpose: Intelligent travel agent database assistant with RAG (Retrieval-Augmented Generation)
+Architecture: React frontend + Node.js/Express backend + LLM integration
+
+================================================================================
+SYSTEM ARCHITECTURE
+================================================================================
+
+1. FRONTEND (React)
+   - Location: /frontend
+   - Framework: React 19.2.4
+   - UI: Custom CSS with modern chat interface
+   - Features:
+     * Real-time streaming responses
+     * Message history with timestamps
+     * Clear chat functionality
+     * Loading states and error handling
+     * Responsive design
+
+2. BACKEND (Node.js/Express)
+   - Location: /backend
+   - Framework: Express 5.2.1
+   - Port: 5000 (configurable via .env)
+   - Features:
+     * RESTful API
+     * Rate limiting (100 req/15min)
+     * Request validation
+     * Error handling middleware
+     * Logging with Winston
+     * CORS enabled
+
+3. DATA LAYER
+   - SQLite database (agents.db)
+   - JSON fallback files
+   - In-memory indexes for fast retrieval
+
+4. AI/LLM INTEGRATION
+   - Primary: Ollama (local LLM)
+   - Fallback: vLLM or alternative Ollama instance
+   - Streaming responses
+   - Retry mechanism with exponential backoff
+
+================================================================================
+DIRECTORY STRUCTURE
+================================================================================
+
+ai_chatbot-botSupriya/
+│
+├── backend/
+│   ├── config/
+│   │   └── logger.js                 # Winston logger configuration
+│   │
+│   ├── controllers/
+│   │   ├── queryController.js        # Main query handling logic
+│   │   └── statsController.js        # Statistics endpoint
+│   │
+│   ├── data/
+│   │   ├── agentData.json           # Agent profiles (fallback)
+│   │   ├── agentLoginData.json      # Login history (fallback)
+│   │   └── agents.db                # SQLite database
+│   │
+│   ├── logs/
+│   │   ├── combined.log             # All logs
+│   │   └── error.log                # Error logs only
+│   │
+│   ├── middleware/
+│   │   └── errorHandler.js          # Error handling middleware
+│   │
+│   ├── routes/
+│   │   └── api.js                   # API route definitions
+│   │
+│   ├── scripts/
+│   │   ├── generateData.js          # Data generation utility
+│   │   └── migrateData.js           # Database migration script
+│   │
+│   ├── services/
+│   │   ├── databaseService.js       # SQLite operations
+│   │   ├── llmService.js            # LLM integration
+│   │   └── vectorService.js         # Search & retrieval logic
+│   │
+│   ├── utils/
+│   │   ├── answerExtractor.js       # Fallback answer extraction
+│   │   └── errors.js                # Custom error classes
+│   │
+│   ├── .env                         # Environment variables
+│   ├── .gitignore
+│   ├── package.json
+│   ├── server.js                    # Main entry point
+│   └── README.md
+│
+└── frontend/
+    ├── public/
+    │   ├── index.html
+    │   ├── favicon.ico
+    │   └── manifest.json
+    │
+    ├── src/
+    │   ├── App.js                   # Main React component
+    │   ├── App.css                  # Component styles
+    │   ├── index.js                 # React entry point
+    │   └── index.css                # Global styles
+    │
+    ├── package.json
+    └── README.md
+
+================================================================================
+KEY COMPONENTS
+================================================================================
+
+1. SERVER.JS (Backend Entry Point)
+   - Initializes Express app
+   - Configures middleware (CORS, body-parser, rate limiter)
+   - Sets up logging with Morgan
+   - Initializes vector service
+   - Handles graceful shutdown
+
+2. VECTOR SERVICE (services/vectorService.js)
+   - Core search and retrieval engine
+   - Features:
+     * In-memory indexing (email, ID, name, company, nationality)
+     * Fuzzy matching with Levenshtein distance
+     * Token-based search
+     * Login history integration
+     * O(1) direct lookups
+   - Search strategies:
+     1. Direct identifier lookup (email, AgentID)
+     2. Nationality-based search
+     3. Name matching (exact, partial, fuzzy)
+     4. Token-based inverted index search
+
+3. LLM SERVICE (services/llmService.js)
+   - Manages LLM communication
+   - Supports multiple LLM backends:
+     * Ollama (primary)
+     * vLLM (fallback)
+   - Streaming response handling
+   - Automatic retry with exponential backoff
+   - Configurable timeout and retry limits
+
+4. DATABASE SERVICE (services/databaseService.js)
+   - SQLite database operations
+   - Tables:
+     * agents: Agent profiles
+     * logins: Login history
+   - Indexes for performance:
+     * idx_agent_username
+     * idx_agent_company
+     * idx_login_agentid
+
+5. QUERY CONTROLLER (controllers/queryController.js)
+   - Main request handler for /api/ask
+   - RAG pipeline:
+     1. Input validation
+     2. Vector search (retrieval)
+     3. Context building
+     4. Prompt engineering
+     5. LLM generation
+     6. Streaming response
+   - Fallback to answer extractor if LLM fails
+
+6. APP.JS (Frontend)
+   - React chat interface
+   - Features:
+     * Message state management
+     * Streaming response handling
+     * Auto-scroll to latest message
+     * Clear chat functionality
+     * Loading indicators
+
+================================================================================
+API ENDPOINTS
+================================================================================
+
+1. POST /api/ask
+   - Description: Submit a question to the chatbot
+   - Request Body:
+     {
+       "question": "string (1-1000 chars, alphanumeric + punctuation)"
+     }
+   - Response: Streaming text/plain
+   - Rate Limit: 100 requests per 15 minutes
+   - Validation:
+     * Required field
+     * Length: 1-1000 characters
+     * Allowed characters: a-z, A-Z, 0-9, spaces, .,?!@#-_()+\"':;/\
+
+2. GET /api/stats
+   - Description: Get system statistics
+   - Response: JSON with system stats
+
+3. GET /
+   - Description: Health check
+   - Response: "AI Travel Chatbot Backend is running."
+
+================================================================================
+ENVIRONMENT VARIABLES
+================================================================================
+
+Required .env file in /backend:
+
+# Server Configuration
+PORT=5000
+
+# Ollama Configuration (Primary LLM)
+OLLAMA_URL=http://localhost:11434/api/generate
+OLLAMA_MODEL=llama3.2:latest
+
+# Fallback LLM Configuration
+FALLBACK_LLM_URL=http://localhost:8000/v1/completions
+FALLBACK_LLM_TYPE=vllm
+FALLBACK_MODEL=meta-llama/Llama-2-7b-chat-hf
+
+# LLM Settings
+LLM_TIMEOUT=30000
+LLM_MAX_RETRIES=2
+
+# Logging
+LOG_LEVEL=info
+
+================================================================================
+DATA MODELS
+================================================================================
+
+1. AGENT PROFILE
+   {
+     "AgentID": "string (e.g., CHAGT001)",
+     "Name": "string",
+     "UserName": "string (email)",
+     "Comp_Name": "string (company name)",
+     "Nationality": "string",
+     "CreatedDate": "string (ISO date)",
+     "LastLogin": "string (ISO date)"
+   }
+
+2. LOGIN RECORD
+   {
+     "ID": "integer",
+     "AGENTID": "string",
+     "LOGINDATE": "string (ISO date)"
+   }
+
+3. CHAT MESSAGE (Frontend)
+   {
+     "text": "string",
+     "isUser": "boolean",
+     "time": "string (HH:MM format)",
+     "contextUsed": "boolean (optional)"
+   }
+
+================================================================================
+SEARCH & RETRIEVAL ALGORITHM
+================================================================================
+
+The vectorService implements a multi-strategy search approach:
+
+STEP 1: Identifier Extraction
+   - Extract emails (regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi)
+   - Extract AgentIDs (regex: /-?CHAGT\d+/gi)
+   - Extract login IDs (regex: /\b(?:ID|id)\s*(\d+)\b/gi)
+
+STEP 2: Direct Lookup (O(1))
+   - Check email index
+   - Check AgentID index
+   - Check login ID index
+   - Return if found (score: 100)
+
+STEP 3: Nationality Search
+   - If query contains nationality keywords
+   - Search nationality index
+   - Return all matching agents
+
+STEP 4: Name-Based Search
+   - Exact full name match (score: 100)
+   - Partial name match (first + last) (score: 95)
+   - Fuzzy name match with Levenshtein distance (score: 90)
+   - Threshold: 0.75 similarity
+
+STEP 5: Token-Based Search
+   - Tokenize query (split by whitespace, filter stopwords)
+   - Use inverted index for token matching
+   - Score by token frequency
+   - Return top 5 results
+
+STEP 6: Context Building
+   - Combine agent profile + login history
+   - Format as structured text
+   - Include all relevant fields
+
+================================================================================
+PROMPT ENGINEERING
+================================================================================
+
+The system uses a carefully crafted prompt template:
+
+SYSTEM ROLE: "You are a helpful travel agent database assistant."
+
+RULES:
+1. Extract information ONLY from provided context
+2. For company queries: List ALL agents from that company
+3. For name queries: Provide specific agent details
+4. For AgentID queries: Match exact ID or pattern
+5. List all candidates when requested
+6. Be conversational and natural
+7. Say "No information found" if no match
+
+STRUCTURE:
+- Context: Retrieved documents (separated by ---)
+- User Question: Original query
+- Answer: LLM-generated response
+
+================================================================================
+ERROR HANDLING
+================================================================================
+
+1. VALIDATION ERRORS (400)
+   - Invalid input format
+   - Missing required fields
+   - Character length violations
+
+2. NOT FOUND ERRORS (404)
+   - No matching data in database
+   - Handled gracefully with user-friendly message
+
+3. SERVICE UNAVAILABLE (503)
+   - LLM service down
+   - Database connection failed
+   - Automatic fallback mechanisms
+
+4. RATE LIMIT (429)
+   - Too many requests
+   - Message: "Too many requests, please try again later."
+
+5. INTERNAL SERVER ERROR (500)
+   - Unexpected errors
+   - Logged with full stack trace
+   - Generic error message to user
+
+================================================================================
+LOGGING STRATEGY
+================================================================================
+
+Winston Logger Configuration:
+- Levels: error, warn, info, debug
+- Transports:
+  * Console (colorized, development)
+  * combined.log (all logs)
+  * error.log (errors only)
+
+Log Format:
+- Timestamp (ISO 8601)
+- Log level
+- Message
+- Metadata (IP, query, timing, etc.)
+
+Key Logged Events:
+- Service initialization
+- Query received
+- Retrieval timing
+- LLM service selection
+- Errors and warnings
+- Request completion
+
+================================================================================
+PERFORMANCE OPTIMIZATIONS
+================================================================================
+
+1. IN-MEMORY INDEXING
+   - Pre-built indexes on startup
+   - O(1) lookups for common queries
+   - Multiple index types (email, ID, name, company)
+
+2. STREAMING RESPONSES
+   - Reduces perceived latency
+   - Better user experience
+   - Efficient memory usage
+
+3. CACHING
+   - In-memory data cache
+   - Avoids repeated database queries
+
+4. RATE LIMITING
+   - Prevents abuse
+   - Protects backend resources
+
+5. FALLBACK MECHANISMS
+   - Multiple LLM backends
+   - JSON file fallback for database
+   - Answer extractor as last resort
+
+================================================================================
+SECURITY FEATURES
+================================================================================
+
+1. INPUT VALIDATION
+   - Express-validator middleware
+   - Character whitelist
+   - Length restrictions
+   - SQL injection prevention
+
+2. RATE LIMITING
+   - IP-based throttling
+   - Configurable limits
+
+3. CORS CONFIGURATION
+   - Controlled cross-origin access
+
+4. ERROR SANITIZATION
+   - No sensitive data in error messages
+   - Stack traces only in logs
+
+5. ENVIRONMENT VARIABLES
+   - Sensitive config in .env
+   - Not committed to version control
+
+================================================================================
+INSTALLATION & SETUP
+================================================================================
+
+PREREQUISITES:
+- Node.js 16+ and npm
+- Ollama installed and running (or alternative LLM)
+- SQLite3
+
+BACKEND SETUP:
+1. cd backend
+2. npm install
+3. Create .env file (see Environment Variables section)
+4. npm start (production) or npm run dev (development)
+
+FRONTEND SETUP:
+1. cd frontend
+2. npm install
+3. npm start
+4. Access at http://localhost:3000
+
+DATABASE SETUP:
+1. Database auto-initializes on first run
+2. To migrate data: node scripts/migrateData.js
+3. To generate test data: node scripts/generateData.js
+
+LLM SETUP:
+1. Install Ollama: https://ollama.ai
+2. Pull model: ollama pull llama3.2
+3. Verify: ollama list
+4. Start Ollama service
+
+================================================================================
+TESTING
+================================================================================
+
+MANUAL TESTING QUERIES:
+- "What is the email of John Doe?"
+- "Show me all agents from ABC Company"
+- "Find agent with ID CHAGT001"
+- "Who has nationality Indian?"
+- "What is the last login date for john@example.com?"
+
+EXPECTED BEHAVIORS:
+- Direct ID/email queries: Instant response
+- Company queries: List all agents
+- Fuzzy name matching: Handle typos
+- No results: Graceful "No information found" message
+- LLM failure: Fallback to answer extractor
+
+================================================================================
+DEPLOYMENT CONSIDERATIONS
+================================================================================
+
+PRODUCTION CHECKLIST:
+□ Set NODE_ENV=production
+□ Configure production LLM endpoints
+□ Set appropriate rate limits
+□ Enable HTTPS
+□ Configure CORS for production domain
+□ Set up log rotation
+□ Database backups
+□ Monitor LLM service health
+□ Set up error alerting
+
+SCALING OPTIONS:
+- Horizontal scaling: Multiple backend instances
+- Load balancer: Distribute requests
+- Database: Migrate to PostgreSQL for larger datasets
+- Caching: Redis for distributed caching
+- LLM: Dedicated GPU instances
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: "Service initialization failed"
+SOLUTION: Check database file permissions, verify data files exist
+
+ISSUE: "All LLM services unavailable"
+SOLUTION: Verify Ollama is running, check OLLAMA_URL in .env
+
+ISSUE: "No data found in the database"
+SOLUTION: Run migration script, check data files
+
+ISSUE: Rate limit errors
+SOLUTION: Adjust rate limit in server.js or wait 15 minutes
+
+ISSUE: Frontend can't connect to backend
+SOLUTION: Verify backend is running on port 5000, check CORS settings
+
+================================================================================
+FUTURE ENHANCEMENTS
+================================================================================
+
+POTENTIAL IMPROVEMENTS:
+- User authentication and sessions
+- Multi-language support
+- Voice input/output
+- Advanced analytics dashboard
+- Conversation history persistence
+- Export chat transcripts
+- Admin panel for data management
+- A/B testing for different prompts
+- Semantic search with embeddings
+- Integration with external travel APIs
+
+================================================================================
+DEPENDENCIES
+================================================================================
+
+BACKEND:
+- express: Web framework
+- cors: Cross-origin resource sharing
+- body-parser: Request body parsing
+- express-rate-limit: Rate limiting
+- express-validator: Input validation
+- winston: Logging
+- morgan: HTTP request logging
+- sqlite3: Database
+- axios: HTTP client
+- dotenv: Environment variables
+- node-fetch: Fetch API for Node.js
+
+FRONTEND:
+- react: UI library
+- react-dom: React DOM rendering
+- react-scripts: Build tooling
+- @testing-library/*: Testing utilities
+- web-vitals: Performance metrics
+
+================================================================================
+LICENSE & CREDITS
+================================================================================
+
+License: ISC
+Author: [Your Name/Team]
+Version: 1.0.0
+
+================================================================================
+CONTACT & SUPPORT
+================================================================================
+
+For issues, questions, or contributions:
+- GitHub: [Repository URL]
+- Email: [Contact Email]
+- Documentation: [Docs URL]
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+Last Updated: 2025
