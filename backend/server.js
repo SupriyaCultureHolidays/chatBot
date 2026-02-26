@@ -8,6 +8,7 @@ const logger = require('./config/logger');
 const apiRoutes = require('./routes/api');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const vectorService = require('./services/vectorService');
+const databaseService = require('./services/databaseService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 5000;
 (async () => {
     try {
         await vectorService.init();
+        await databaseService.preComputeAnalytics();
         logger.info('All services initialized');
     } catch (error) {
         logger.error('Service initialization failed:', error);

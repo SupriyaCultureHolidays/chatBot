@@ -115,6 +115,76 @@ class DatabaseService {
         });
     }
 
+    /**
+     * Pre-compute analytics for fast query responses
+     * @returns {Object} Analytics data
+     */
+    async preComputeAnalytics() {
+        const analytics = {};
+
+        try {
+            // Total agents per company
+            analytics.agentsByCompany = await new Promise((resolve, reject) => {
+                this.db.all(`
+                    SELECT Comp_Name, COUNT(*) as count 
+                    FROM agents 
+                    GROUP BY Comp_Name 
+                    ORDER BY count DESC
+                `, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+            });
+
+            // Total agents per nationality
+            analytics.agentsByNationality = await new Promise((resolve, reject) => {
+                this.db.all(`
+                    SELECT Nationality, COUNT(*) as count 
+                    FROM agents 
+                    GROUP BY Nationality 
+                    ORDER BY count DESC
+                `, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+            });
+
+            // Most active agents (by login count)
+            analytics.mostActiveAgents = await new Promise((resolve, reject) => {
+                this.db.all(`
+                    SELECT a.AgentID, a.Name, a.Comp_Name, COUNT(l.ID) as loginCount
+                    FROM agents a 
+                    LEFT JOIN logins l ON a.AgentID = l.AGENTID
+                    GROUP BY a.AgentID 
+                    ORDER BY loginCount DESC 
+                    LIMIT 10
+                `, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+            });
+
+            // Agents with no logins
+            analytics.neverLoggedIn = await new Promise((resolve, reject) => {
+                this.db.all(`
+                    SELECT a.AgentID, a.Name, a.Comp_Name
+                    FROM agents a
+                    LEFT JOIN logins l ON a.AgentID = l.AGENTID
+                    WHERE l.ID IS NULL
+                `, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+            });
+
+            // Recent logins (last 30 days)
+            analytics.recentLogins = await new Promise((resolve, reject) => {
+                this.db.all(`
+                    SELECT a.AgentID, a.Name, MAX(l.LOGINDATE) as lastLogin
+                    FROM agents a
+                    JOIN logins l ON a.AgentID = l.AGENTID
+                    WHERE l.LOGINDATE >= date('now', '-30 days')
+                    GROUP BY a.AgentID 
+                    ORDER BY lastLogin DESC
+                `, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+            });
+
+            logger.info('Analytics pre-computed successfully');
+            return analytics;
+        } catch (error) {
+            logger.error('Analytics pre-computation error:', error);
+            return {};
+        }
+    }
+
     async close() {
         return new Promise((resolve, reject) => {
             this.db.close((err) => err ? reject(err) : resolve());

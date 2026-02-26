@@ -156,10 +156,54 @@ class VectorService {
         return { emails, agentIDs, loginIDs };
     }
 
-    async search(query) {
+    /**
+     * Normalize query for better matching
+     * @param {string} query - Raw query
+     * @returns {string} Normalized query
+     */
+    _normalizeQuery(query) {
+        return query
+            .replace(/pvt\.?\s*ltd\.?/gi, 'pvt ltd')
+            .replace(/&/g, 'and')
+            .replace(/\bco\b\.?/gi, 'company')
+            .trim();
+    }
+
+    /**
+     * Fuzzy company matching with Levenshtein similarity
+     * @param {string} queryTerm - Company name from query
+     * @returns {Array} Matching agents
+     */
+    _fuzzyCompanyMatch(queryTerm) {
+        const term = queryTerm.toLowerCase();
+        const matches = [];
+
+        for (const [companyName, agents] of this.agentByCompany) {
+            if (companyName.includes(term)) {
+                matches.push(...agents);
+            } else {
+                const similarity = 1 - (this._levenshtein(term, companyName) / Math.max(term.length, companyName.length));
+                if (similarity > 0.70) {
+                    matches.push(...agents);
+                }
+            }
+        }
+
+        return matches;
+    }
+
+    /**
+     * Search for agents with options
+     * @param {string} query - Search query
+     * @param {Object} options - Search options { limit, includeLogins }
+     * @returns {Array} Search results
+     */
+    async search(query, options = {}) {
         if (!this.initialized) await this.init();
         
-        const { emails, agentIDs, loginIDs } = this._extractIdentifiers(query);
+        const { limit = 5, includeLogins = true } = options;
+        const normalizedQuery = this._normalizeQuery(query);
+        const { emails, agentIDs, loginIDs } = this._extractIdentifiers(normalizedQuery);
         const results = [];
         const foundAgentIDs = new Set();
 
@@ -214,7 +258,7 @@ class VectorService {
 
         // 2. Search by nationality (exact match)
         if (results.length === 0) {
-            const queryLower = query.toLowerCase();
+            const queryLower = normalizedQuery.toLowerCase();
             if (queryLower.includes('nationality') || queryLower.includes('from') || queryLower.includes('country')) {
                 for (const [nationality, agents] of this.agentByNationality) {
                     if (queryLower.includes(nationality)) {
@@ -223,7 +267,7 @@ class VectorService {
                                 foundAgentIDs.add(agent.AgentID);
                                 results.push({
                                     id: agent.AgentID,
-                                    content: this._buildAgentContent(agent),
+                                    content: this._buildAgentContent(agent, includeLogins),
                                     score: 100
                                 });
                             }
@@ -233,9 +277,32 @@ class VectorService {
             }
         }
 
+        // 2.5. Fuzzy company search
+        if (results.length === 0) {
+            const queryLower = normalizedQuery.toLowerCase();
+            if (queryLower.includes('company') || queryLower.includes('all agent') || queryLower.includes('list agent')) {
+                const tokens = this._tokenize(normalizedQuery).filter(t => 
+                    !['company', 'all', 'agent', 'agents', 'list', 'show', 'from', 'work', 'working'].includes(t)
+                );
+                if (tokens.length > 0) {
+                    const companyMatches = this._fuzzyCompanyMatch(tokens.join(' '));
+                    companyMatches.forEach(agent => {
+                        if (!foundAgentIDs.has(agent.AgentID)) {
+                            foundAgentIDs.add(agent.AgentID);
+                            results.push({
+                                id: agent.AgentID,
+                                content: this._buildAgentContent(agent, includeLogins),
+                                score: 95
+                            });
+                        }
+                    });
+                }
+            }
+        }
+
         // 3. Inverted index search
         if (results.length === 0) {
-            const tokens = this._tokenize(query).filter(t =>
+            const tokens = this._tokenize(normalizedQuery).filter(t =>
                 !['what', 'is', 'the', 'of', 'for', 'tell', 'me', 'whose', 'with', 'ends', 'starts', 'agent', 'details', 'give', 'all', 'last', 'login', 'date', 'full'].includes(t)
             );
 
@@ -251,7 +318,7 @@ class VectorService {
                         foundAgentIDs.add(agent.AgentID);
                         results.push({
                             id: agent.AgentID,
-                            content: this._buildAgentContent(agent),
+                            content: this._buildAgentContent(agent, includeLogins),
                             score: 100
                         });
                     }
@@ -264,7 +331,7 @@ class VectorService {
                         foundAgentIDs.add(agent.AgentID);
                         results.push({
                             id: agent.AgentID,
-                            content: this._buildAgentContent(agent),
+                            content: this._buildAgentContent(agent, includeLogins),
                             score: 95
                         });
                     }
@@ -291,7 +358,7 @@ class VectorService {
                         foundAgentIDs.add(match.agent.AgentID);
                         results.push({
                             id: match.agent.AgentID,
-                            content: this._buildAgentContent(match.agent),
+                            content: this._buildAgentContent(match.agent, includeLogins),
                             score: 90
                         });
                     }
@@ -318,7 +385,7 @@ class VectorService {
                         if (agent) {
                             results.push({
                                 id: agentID,
-                                content: this._buildAgentContent(agent),
+                                content: this._buildAgentContent(agent, includeLogins),
                                 score: score * 20
                             });
                         }
@@ -326,25 +393,37 @@ class VectorService {
             }
         }
 
-        return results;
+        return results.slice(0, limit);
     }
 
-    _buildAgentContent(agent) {
-        let content = `Agent Information:
-- Name: ${agent.Name || 'N/A'}
-- Email: ${agent.UserName || 'N/A'}
-- AgentID: ${agent.AgentID || 'N/A'}
-- Company: ${agent.Comp_Name || 'N/A'}
-- Nationality: ${agent.Nationality || 'N/A'}
-- Registration Date: ${agent.CreatedDate || 'N/A'}
-`;
+    /**
+     * Build agent content with optional login history
+     * @param {Object} agent - Agent data
+     * @param {boolean} includeLogins - Whether to include login history
+     * @returns {string} Formatted agent content
+     */
+    _buildAgentContent(agent, includeLogins = true) {
+        let content = `AgentID: ${agent.AgentID || 'N/A'}
+Name: ${agent.Name || 'N/A'}
+Email: ${agent.UserName || 'N/A'}
+Company: ${agent.Comp_Name || 'N/A'}
+Nationality: ${agent.Nationality || 'N/A'}
+Created: ${agent.CreatedDate || 'N/A'}`;
 
-        const logins = [...(this._getLoginHistory(agent.UserName) || []), ...(this._getLoginHistory(agent.AgentID) || [])];
-        if (logins.length > 0) {
-            const sorted = logins.sort((a, b) => new Date(b.LOGINDATE) - new Date(a.LOGINDATE));
-            content += `- Last Login Date: ${sorted[0].LOGINDATE}\n- Total Logins: ${logins.length}\n`;
-        } else if (agent.LastLogin) {
-            content += `- Last Login Date: ${agent.LastLogin}\n`;
+        if (includeLogins) {
+            const logins = [...(this._getLoginHistory(agent.UserName) || []), ...(this._getLoginHistory(agent.AgentID) || [])];
+            const uniqueLogins = Array.from(new Map(logins.map(l => [l.LOGINDATE, l])).values());
+            
+            if (uniqueLogins.length > 0) {
+                const sorted = uniqueLogins.sort((a, b) => new Date(b.LOGINDATE) - new Date(a.LOGINDATE));
+                content += `\nLast Login: ${sorted[0].LOGINDATE}`;
+                content += `\nTotal Logins: ${uniqueLogins.length}`;
+                if (sorted.length > 1) {
+                    content += `\nLogin History: ${sorted.slice(0, 5).map(l => l.LOGINDATE).join(', ')}`;
+                }
+            } else if (agent.LastLogin) {
+                content += `\nLast Login: ${agent.LastLogin}`;
+            }
         }
 
         return content;
