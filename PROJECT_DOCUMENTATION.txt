@@ -1,0 +1,1816 @@
+================================================================================
+AI TRAVEL CHATBOT - COMPLETE PROJECT DOCUMENTATION
+================================================================================
+
+OVERVIEW
+========
+
+This document provides comprehensive documentation of the AI Travel Chatbot 
+project, including detailed explanations of the project flow, logic, 
+architecture, and implementation details.
+
+Project Name: AI Travel Chatbot
+Purpose: Intelligent travel assistant powered by AI
+Technology: Node.js, React, Ollama, Pinecone, SQLite
+
+
+================================================================================
+HIGH-LEVEL ARCHITECTURE
+================================================================================
+
+The system follows a client-server architecture with the following components:
+
+1. FRONTEND (React - Port 3000)
+   - User interface for chat interactions
+   - Real-time streaming response display
+   - Input validation and error handling
+
+2. BACKEND (Express.js - Port 5000)
+   - RESTful API endpoints
+   - Request processing and routing
+   - Business logic orchestration
+
+3. LLM SERVICE (Ollama - Port 11434)
+   - Local language model inference
+   - Text generation with streaming
+   - Model: Llama 3.2 (1B parameters)
+
+4. VECTOR DATABASE (Pinecone - Cloud)
+   - Semantic search capabilities
+   - Travel knowledge base storage
+   - 384-dimensional embeddings
+
+5. LOCAL DATABASE (SQLite)
+   - Agent data storage
+   - Query analytics
+   - Performance metrics
+
+Architecture Flow:
+User Input → Frontend → Backend API → Intent Classification → Vector Search → 
+LLM Processing → Response Streaming → Frontend Display
+
+
+================================================================================
+DETAILED REQUEST FLOW
+================================================================================
+
+PHASE 1: USER INTERACTION (FRONTEND)
+-------------------------------------
+
+Step 1: User enters a question in the chat interface
+Step 2: Frontend validates the input
+        - Check if input is non-empty
+        - Validate reasonable length
+        - Sanitize special characters
+Step 3: HTTP POST request is sent to backend
+        - URL: http://localhost:5000/api/ask
+        - Method: POST
+        - Headers: Content-Type: application/json
+        - Body: { "question": "user's question here" }
+Step 4: Streaming connection is established
+        - Use Fetch API with ReadableStream
+        - Prepare to receive chunks in real-time
+
+
+PHASE 2: REQUEST RECEPTION (BACKEND ENTRY POINT)
+-------------------------------------------------
+
+File: server.js
+
+Step 1: Express server receives POST request on port 5000
+Step 2: CORS middleware validates the origin
+        - Allowed origin: http://localhost:3000
+        - Allowed methods: GET, POST
+        - Allowed headers: Content-Type
+Step 3: Rate limiter checks request count
+        - Window: 15 minutes
+        - Max requests: 100 per IP address
+        - If exceeded: Return 429 Too Many Requests
+Step 4: Body parser extracts JSON payload
+        - Parse request body
+        - Validate JSON structure
+Step 5: Request is routed to /api/ask endpoint
+Step 6: Route handler forwards to queryController.js
+
+
+PHASE 3: QUERY PROCESSING (QUERY CONTROLLER)
+---------------------------------------------
+
+File: controllers/queryController.js
+
+Step 1: INPUT VALIDATION
+        - Check if question field exists
+        - Validate question length (min: 3 chars, max: 500 chars)
+        - Sanitize input to prevent injection attacks
+        - Log incoming request with timestamp
+        - If validation fails: Return 400 Bad Request
+
+Step 2: INTENT CLASSIFICATION
+        Call: intentService.classifyIntent(question)
+        Returns: {
+          intent: 'greeting' | 'travel_query' | 'unknown',
+          confidence: 0.0 to 1.0
+        }
+
+Step 3: ROUTE BASED ON INTENT
+        
+        If intent = 'greeting':
+          - Return predefined friendly greeting
+          - Response: "Hello! I'm your travel assistant. How can I help you?"
+          - No LLM call needed
+          - Fast response (< 100ms)
+        
+        If intent = 'travel_query':
+          - Proceed to vector search
+          - Continue to LLM processing
+          - Full pipeline execution
+        
+        If intent = 'unknown':
+          - Return clarification message
+          - Response: "I'm not sure I understand. Could you rephrase?"
+          - Ask user to provide more context
+
+
+PHASE 4: INTENT CLASSIFICATION LOGIC
+-------------------------------------
+
+File: services/intentService.js
+
+CLASSIFICATION ALGORITHM:
+
+Step 1: Normalize Input
+        - Convert question to lowercase
+        - Remove extra whitespace
+        - Trim leading/trailing spaces
+
+Step 2: Check for Greeting Keywords
+        Keywords: ["hello", "hi", "hey", "greetings", "good morning", 
+                   "good afternoon", "good evening", "howdy"]
+        If found → intent = 'greeting', confidence = 0.9
+
+Step 3: Check for Travel Keywords
+        Keywords: ["travel", "trip", "visit", "destination", "hotel", 
+                   "flight", "tour", "vacation", "holiday", "itinerary",
+                   "beach", "mountain", "city", "country", "place"]
+        If found → intent = 'travel_query', confidence = 0.85
+
+Step 4: Check for Question Patterns
+        Starts with: ["what", "where", "when", "how", "which", "why",
+                      "can you", "could you", "would you", "should i"]
+        Contains: ["recommend", "suggest", "best", "top", "popular",
+                   "famous", "must-see", "worth visiting"]
+        If found → intent = 'travel_query', confidence = 0.75
+
+Step 5: Default Classification
+        If no patterns match → intent = 'unknown', confidence = 0.3
+
+CONFIDENCE SCORING:
+- Exact keyword match: 0.9
+- Pattern match: 0.7-0.8
+- Weak match: 0.5-0.6
+- No match: 0.3
+
+
+PHASE 5: VECTOR SEARCH (SEMANTIC RETRIEVAL)
+--------------------------------------------
+
+File: services/vectorService.js
+
+PURPOSE:
+Find relevant travel information from the knowledge base to provide 
+context to the LLM for more accurate and informed responses.
+
+PROCESS FLOW:
+
+Step 1: GENERATE QUERY EMBEDDING
+        Input: User's question text
+        Model: Xenova Transformers (all-MiniLM-L6-v2)
+        Process:
+          - Tokenize input text
+          - Pass through transformer model
+          - Apply mean pooling
+          - Normalize vector
+        Output: 384-dimensional vector
+        Example: [0.123, -0.456, 0.789, ..., 0.234] (384 numbers)
+        Time: ~100-200ms
+
+Step 2: SEARCH PINECONE VECTOR DATABASE
+        Query Parameters:
+          - vector: [embedding from step 1]
+          - topK: 5 (retrieve top 5 most similar results)
+          - includeMetadata: true
+          - namespace: 'default'
+        
+        Similarity Calculation:
+          Pinecone uses cosine similarity:
+          similarity = (A · B) / (||A|| × ||B||)
+          Range: -1.0 to 1.0 (higher = more similar)
+        
+        Returns: Array of matches sorted by similarity score
+        Time: ~50-150ms
+
+Step 3: EXTRACT RELEVANT CONTEXT
+        For each match:
+          - Check similarity threshold (> 0.7)
+          - Extract metadata fields:
+            * title
+            * description
+            * location
+            * category
+            * tags
+          - Format as readable text
+          - Combine into context string
+        
+        Example Output:
+        "Relevant travel information:
+        
+        1. Bali Beaches (Similarity: 0.92)
+           Beautiful beaches with crystal clear water and white sand.
+           Location: Indonesia
+           Category: Beach Destination
+        
+        2. Ubud Rice Terraces (Similarity: 0.88)
+           Stunning landscapes perfect for photography and nature walks.
+           Location: Bali, Indonesia
+           Category: Nature & Scenery"
+
+PINECONE INDEX STRUCTURE:
+
+Index Configuration:
+  - Index Name: travel-knowledge
+  - Dimension: 384
+  - Metric: cosine
+  - Pod Type: p1.x1
+  - Replicas: 1
+
+Vector Document Format:
+{
+  "id": "doc_123",
+  "values": [0.1, 0.2, 0.3, ...], // 384 dimensions
+  "metadata": {
+    "title": "Bali Travel Guide",
+    "description": "Complete guide to visiting Bali...",
+    "category": "destination",
+    "location": "Indonesia",
+    "tags": ["beach", "culture", "tropical"],
+    "popularity": 9.2,
+    "best_season": "April-October"
+  }
+}
+
+
+PHASE 6: PROMPT CONSTRUCTION
+-----------------------------
+
+File: services/promptService.js
+
+PROMPT ENGINEERING STRATEGY:
+
+The prompt is constructed in three parts: System, Context, and User Query
+
+PART 1: SYSTEM PROMPT (Role Definition)
+----------------------------------------
+"You are an expert travel assistant with deep knowledge of:
+- Global destinations and attractions
+- Travel planning and itineraries
+- Cultural insights and local tips
+- Budget recommendations
+- Safety and travel requirements
+- Visa and documentation needs
+- Best times to visit various locations
+- Local customs and etiquette
+
+Your responses should be:
+- Helpful and informative
+- Concise but comprehensive (2-4 paragraphs)
+- Friendly and conversational
+- Based on factual information
+- Practical and actionable
+- Culturally sensitive
+
+Always prioritize traveler safety and provide up-to-date information."
+
+PART 2: CONTEXT INJECTION
+--------------------------
+"Based on the following relevant travel information from our knowledge base:
+
+[Vector search results inserted here]
+
+Use this information to provide an accurate and helpful answer."
+
+PART 3: USER QUERY
+------------------
+"User Question: [Original user question]
+
+Please provide a helpful answer based on the context above. If the context 
+doesn't fully answer the question, use your general knowledge but indicate 
+when you're doing so."
+
+FINAL PROMPT STRUCTURE:
+-----------------------
+[System Prompt]
+---
+[Context from Vector Search]
+---
+[User Question]
+---
+Instructions: Answer the question using the provided context. If context is 
+insufficient, use your general knowledge but indicate uncertainty. Keep the 
+response focused and relevant.
+
+PROMPT OPTIMIZATION TECHNIQUES:
+- Clear role definition
+- Explicit instructions
+- Context separation
+- Length constraints
+- Quality guidelines
+- Safety considerations
+
+
+
+
+PHASE 7: LLM PROCESSING (OLLAMA)
+---------------------------------
+
+File: services/llmService.js
+
+OLLAMA CONFIGURATION:
+Model: llama3.2:1b (1 billion parameters)
+URL: http://localhost:11434/api/generate
+Method: POST
+Streaming: Enabled (true)
+Timeout: 15000ms (15 seconds)
+Max Retries: 1
+
+REQUEST PAYLOAD STRUCTURE:
+{
+  "model": "llama3.2:1b",
+  "prompt": "[Constructed prompt from Phase 6]",
+  "stream": true,
+  "options": {
+    "temperature": 0.7,      // Controls randomness (0.0-1.0)
+                             // Lower = more deterministic
+                             // Higher = more creative
+    "top_p": 0.9,            // Nucleus sampling threshold
+                             // Only consider tokens with cumulative 
+                             // probability up to 0.9
+    "top_k": 40,             // Consider only top 40 tokens at each step
+                             // Limits token selection diversity
+    "num_predict": 500,      // Maximum tokens to generate
+                             // Prevents overly long responses
+    "stop": ["User:", "\n\n\n", "Question:"]  // Stop sequences
+                             // Generation stops if these appear
+  }
+}
+
+STREAMING RESPONSE HANDLING:
+
+Step 1: ESTABLISH CONNECTION
+        - Open HTTP stream to Ollama endpoint
+        - Set connection timeout: 15 seconds
+        - Enable keep-alive
+        - Set retry logic: 1 retry on failure
+        - Monitor connection health
+
+Step 2: PROCESS STREAM CHUNKS
+        Ollama sends data in NDJSON format (newline-delimited JSON):
+        
+        Chunk 1: {"response": "The", "done": false}
+        Chunk 2: {"response": " best", "done": false}
+        Chunk 3: {"response": " time", "done": false}
+        Chunk 4: {"response": " to", "done": false}
+        ...
+        Final: {"response": "", "done": true, "total_duration": 2450000000}
+        
+        For each chunk:
+        1. Parse JSON from stream
+        2. Extract "response" field (contains token/word)
+        3. Accumulate text in buffer
+        4. Forward token to frontend immediately (no buffering)
+        5. Check "done" flag
+        6. If done=true, finalize response
+        7. Extract metadata (duration, tokens, etc.)
+
+Step 3: ERROR HANDLING
+        
+        Timeout Error:
+        - If no response within 15 seconds
+        - Log error with request details
+        - Retry once if LLM_MAX_RETRIES = 1
+        - If retry fails, check for fallback LLM
+        - Return error message to user
+        
+        Connection Error:
+        - Check if Ollama service is running
+        - Verify model is loaded
+        - Log connection details
+        - Return service unavailable error
+        
+        Parsing Error:
+        - Invalid JSON in stream
+        - Log malformed chunk
+        - Skip chunk and continue
+        - If multiple errors, abort request
+        
+        Model Error:
+        - Model not found
+        - Insufficient memory
+        - Log system resources
+        - Suggest smaller model
+
+Step 4: RESPONSE QUALITY CONTROL
+        
+        Post-processing:
+        - Filter out incomplete sentences at timeout
+        - Remove repetitive text patterns (e.g., "The the the")
+        - Ensure minimum response length (50 characters)
+        - Validate response relevance
+        - Remove any prompt leakage
+        - Trim excessive whitespace
+        
+        Quality Checks:
+        - Response contains actual content (not just "...")
+        - Response is in proper language
+        - Response addresses the question
+        - No harmful or inappropriate content
+
+OLLAMA MODEL DETAILS:
+
+Model: Llama 3.2 (1B parameters)
+Architecture: Transformer-based decoder
+Context Window: 2048 tokens
+Vocabulary Size: 32,000 tokens
+Quantization: Q4_0 (4-bit quantization for efficiency)
+Memory Usage: ~1.5 GB RAM
+Inference Speed: ~20-30 tokens/second (CPU)
+                 ~50-100 tokens/second (GPU)
+
+Model Capabilities:
+- Natural language understanding
+- Context-aware responses
+- Multi-turn conversations
+- Instruction following
+- Knowledge retrieval
+- Reasoning and inference
+
+Model Limitations:
+- Knowledge cutoff date
+- May hallucinate facts
+- Limited context window
+- No real-time information
+- No internet access
+
+
+PHASE 8: RESPONSE STREAMING TO FRONTEND
+----------------------------------------
+
+File: controllers/queryController.js
+
+STREAMING IMPLEMENTATION:
+
+Step 1: SET RESPONSE HEADERS
+        
+        Headers Configuration:
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+          → Indicates plain text response with UTF-8 encoding
+        
+        res.setHeader('Transfer-Encoding', 'chunked')
+          → Enables chunked transfer for streaming
+          → Server sends data in chunks without knowing total size
+        
+        res.setHeader('Cache-Control', 'no-cache')
+          → Prevents caching of streaming responses
+          → Ensures fresh data on each request
+        
+        res.setHeader('Connection', 'keep-alive')
+          → Maintains persistent connection
+          → Allows multiple chunks over same connection
+        
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+          → Security header to prevent MIME sniffing
+
+Step 2: STREAM DATA TO CLIENT
+        
+        Streaming Loop:
+        for each token from LLM:
+          1. Receive token from Ollama
+          2. Write to response stream: res.write(token)
+          3. Flush immediately (no buffering)
+          4. Check if client is still connected
+          5. If disconnected, abort LLM request
+          6. Continue until LLM signals completion
+          7. Call res.end() to close stream
+        
+        Example Flow:
+        Token 1: "The" → res.write("The") → Client receives "The"
+        Token 2: " best" → res.write(" best") → Client receives " best"
+        Token 3: " beaches" → res.write(" beaches") → Client receives " beaches"
+        ...
+        Final: res.end() → Connection closed
+
+Step 3: HANDLE INTERRUPTIONS
+        
+        Client Disconnect Detection:
+        - Monitor 'close' event on response object
+        - If client disconnects mid-stream:
+          * Cancel ongoing LLM request
+          * Clean up resources
+          * Log incomplete request
+          * Free memory buffers
+        
+        Server-Side Errors:
+        - If LLM fails during streaming:
+          * Send error message to client
+          * Close stream gracefully
+          * Log error details
+          * Update analytics (failed request)
+        
+        Network Issues:
+        - Detect broken pipe errors
+        - Handle timeout on client side
+        - Implement exponential backoff for retries
+
+Step 4: PERFORMANCE OPTIMIZATION
+        
+        Buffering Strategy:
+        - Micro-batching: Accumulate 2-3 tokens before sending
+        - Reduces HTTP overhead
+        - Maintains perceived real-time experience
+        
+        Compression:
+        - Enable gzip compression for text
+        - Reduces bandwidth usage
+        - Faster transmission over slow networks
+        
+        Connection Pooling:
+        - Reuse connections when possible
+        - Reduce connection establishment overhead
+
+
+PHASE 9: FRONTEND RESPONSE DISPLAY
+-----------------------------------
+
+File: frontend/src/App.js
+
+STREAMING RECEPTION:
+
+Step 1: FETCH API WITH STREAMING
+        
+        Code Flow:
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question })
+        })
+        
+        // Get readable stream from response body
+        const reader = response.body.getReader()
+        
+        // Create text decoder for UTF-8
+        const decoder = new TextDecoder()
+
+Step 2: READ STREAM CHUNKS
+        
+        Reading Loop:
+        let accumulatedText = ''
+        
+        while (true) {
+          // Read next chunk from stream
+          const { done, value } = await reader.read()
+          
+          // Check if stream is complete
+          if (done) break
+          
+          // Decode binary data to text
+          const chunk = decoder.decode(value, { stream: true })
+          
+          // Accumulate text
+          accumulatedText += chunk
+          
+          // Update UI immediately
+          setMessages(prev => updateLastMessage(prev, accumulatedText))
+          
+          // Scroll to bottom
+          scrollToBottom()
+        }
+
+Step 3: UI UPDATES
+        
+        Display Strategy:
+        - Show typing indicator while waiting for first chunk
+        - Create message bubble for bot response
+        - Append each chunk to message bubble
+        - Smooth scrolling to latest message
+        - Show completion indicator when done
+        - Enable copy button after completion
+        
+        Animation:
+        - Fade in new tokens
+        - Cursor blink effect during typing
+        - Smooth scroll animation
+        - Message bubble expansion
+        
+        Error Handling:
+        - Display error message if stream fails
+        - Show retry button
+        - Maintain conversation history
+        - Log errors to console
+
+Step 4: USER EXPERIENCE ENHANCEMENTS
+        
+        Loading States:
+        - Show "Thinking..." indicator
+        - Display animated dots
+        - Disable input during processing
+        - Show cancel button for long requests
+        
+        Accessibility:
+        - Screen reader announcements
+        - Keyboard navigation support
+        - Focus management
+        - ARIA labels for dynamic content
+        
+        Responsive Design:
+        - Mobile-friendly layout
+        - Touch-optimized buttons
+        - Adaptive font sizes
+        - Flexible message bubbles
+
+
+================================================================================
+DATABASE OPERATIONS
+================================================================================
+
+File: services/databaseService.js
+
+SQLITE SCHEMA:
+
+Table 1: AGENTS
+---------------
+CREATE TABLE agents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  specialization TEXT,
+  experience_years INTEGER,
+  rating REAL,
+  languages TEXT,
+  availability BOOLEAN DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+
+Purpose: Store travel agent profiles
+Indexes: email (unique), specialization, rating
+
+Table 2: QUERIES
+----------------
+CREATE TABLE queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  question TEXT NOT NULL,
+  intent TEXT,
+  response_time_ms INTEGER,
+  success BOOLEAN,
+  error_message TEXT,
+  user_ip TEXT,
+  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+
+Purpose: Track all user queries for analytics
+Indexes: timestamp, intent, success
+
+Table 3: ANALYTICS
+------------------
+CREATE TABLE analytics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  metric_name TEXT NOT NULL,
+  metric_value REAL,
+  metadata TEXT,
+  recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+
+Purpose: Store pre-computed analytics
+Indexes: metric_name, recorded_at
+
+DATABASE OPERATIONS:
+
+1. STORE QUERY ANALYTICS
+   
+   Trigger: After each user request
+   
+   Process:
+   - Extract query details (question, intent, response time)
+   - Record success/failure status
+   - Store user IP (anonymized)
+   - Insert timestamp
+   - Commit transaction
+   
+   SQL:
+   INSERT INTO queries (question, intent, response_time_ms, success, user_ip)
+   VALUES (?, ?, ?, ?, ?)
+
+2. RETRIEVE STATISTICS
+   
+   Trigger: On /api/stats endpoint call
+   
+   Pre-computed Metrics (calculated on startup):
+   - Total queries count
+   - Average response time
+   - Intent distribution
+   - Success rate percentage
+   - Hourly query volume
+   - Peak usage times
+   
+   SQL Examples:
+   
+   Total Queries:
+   SELECT COUNT(*) as total FROM queries
+   
+   Average Response Time:
+   SELECT AVG(response_time_ms) as avg_time FROM queries WHERE success = 1
+   
+   Intent Distribution:
+   SELECT intent, COUNT(*) as count 
+   FROM queries 
+   GROUP BY intent 
+   ORDER BY count DESC
+   
+   Success Rate:
+   SELECT 
+     (COUNT(CASE WHEN success = 1 THEN 1 END) * 100.0 / COUNT(*)) as rate
+   FROM queries
+
+3. AGENT DATA MANAGEMENT
+   
+   Load Agent Profiles:
+   - Read from agentData.json
+   - Parse JSON structure
+   - Validate data integrity
+   - Insert into agents table
+   - Handle duplicates (update if exists)
+   
+   Query Agents by Specialization:
+   SELECT * FROM agents 
+   WHERE specialization = ? 
+   AND availability = 1 
+   ORDER BY rating DESC 
+   LIMIT 10
+   
+   Update Agent Ratings:
+   UPDATE agents 
+   SET rating = ?, updated_at = CURRENT_TIMESTAMP 
+   WHERE id = ?
+
+4. DATA MIGRATION
+   
+   File: scripts/migrateData.js
+   
+   Migration Process:
+   - Check if tables exist
+   - Create tables if missing
+   - Load data from JSON files
+   - Transform data format
+   - Insert into database
+   - Verify data integrity
+   - Create indexes
+   - Log migration results
+
+DATABASE PERFORMANCE OPTIMIZATION:
+
+1. Indexing Strategy:
+   - Primary keys on all tables
+   - Index on frequently queried columns
+   - Composite indexes for multi-column queries
+   - Avoid over-indexing (slows writes)
+
+2. Query Optimization:
+   - Use prepared statements (prevent SQL injection)
+   - Limit result sets (LIMIT clause)
+   - Use transactions for bulk operations
+   - Avoid SELECT * (specify columns)
+
+3. Connection Management:
+   - Connection pooling (max 5 connections)
+   - Reuse connections
+   - Close connections properly
+   - Handle connection timeouts
+
+4. Maintenance:
+   - VACUUM command to reclaim space
+   - ANALYZE to update statistics
+   - Regular backups
+   - Archive old data
+
+
+================================================================================
+SECURITY & ERROR HANDLING
+================================================================================
+
+RATE LIMITING LOGIC:
+
+File: server.js
+
+Configuration:
+- Window: 15 minutes (900,000 milliseconds)
+- Max requests: 100 per IP address
+- Strategy: Sliding window counter
+- Storage: In-memory (resets on server restart)
+
+Implementation:
+const rateLimit = require('express-rate-limit')
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 100,                   // Max 100 requests per window
+  message: 'Too many requests, please try again later',
+  standardHeaders: true,      // Return rate limit info in headers
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn(`Rate limit exceeded for IP: ${req.ip}`)
+    res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: req.rateLimit.resetTime
+    })
+  }
+})
+
+Rate Limit Headers:
+- X-RateLimit-Limit: 100
+- X-RateLimit-Remaining: 45
+- X-RateLimit-Reset: 1642345678
+
+ERROR HANDLING HIERARCHY:
+
+File: middleware/errorHandler.js
+
+1. VALIDATION ERRORS (400 Bad Request)
+   
+   Triggers:
+   - Missing required fields
+   - Invalid input format
+   - Out of range values
+   - Malformed JSON
+   
+   Response:
+   {
+     "error": {
+       "message": "Invalid input: question is required",
+       "code": "VALIDATION_ERROR",
+       "field": "question"
+     }
+   }
+
+2. AUTHENTICATION ERRORS (401 Unauthorized)
+   
+   Triggers:
+   - Invalid API keys
+   - Expired tokens
+   - Missing credentials
+   
+   Response:
+   {
+     "error": {
+       "message": "Authentication required",
+       "code": "AUTH_ERROR"
+     }
+   }
+
+3. RATE LIMIT ERRORS (429 Too Many Requests)
+   
+   Triggers:
+   - Exceeded request limit
+   
+   Response:
+   {
+     "error": {
+       "message": "Too many requests",
+       "code": "RATE_LIMIT_EXCEEDED",
+       "retryAfter": 300
+     }
+   }
+
+4. SERVICE ERRORS (503 Service Unavailable)
+   
+   Triggers:
+   - Ollama unavailable
+   - Pinecone connection failed
+   - Database locked
+   - External service timeout
+   
+   Response:
+   {
+     "error": {
+       "message": "Service temporarily unavailable",
+       "code": "SERVICE_UNAVAILABLE",
+       "service": "ollama"
+     }
+   }
+
+5. INTERNAL ERRORS (500 Internal Server Error)
+   
+   Triggers:
+   - Unexpected exceptions
+   - Unhandled promise rejections
+   - System errors
+   
+   Response:
+   {
+     "error": {
+       "message": "An unexpected error occurred",
+       "code": "INTERNAL_ERROR",
+       "requestId": "req_abc123"
+     }
+   }
+
+ERROR LOGGING:
+
+Winston Logger Configuration:
+- Log Level: info (production), debug (development)
+- Transports: File (combined.log, error.log), Console
+- Format: JSON with timestamp
+- Rotation: Daily, max 10 files
+
+Log Entry Structure:
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "level": "error",
+  "message": "LLM request failed",
+  "service": "llmService",
+  "error": {
+    "message": "Connection timeout",
+    "stack": "Error: timeout\n  at..."
+  },
+  "context": {
+    "question": "Best beaches in Bali?",
+    "userId": "user_123"
+  }
+}
+
+SECURITY BEST PRACTICES:
+
+1. Input Sanitization:
+   - Escape special characters
+   - Validate input length
+   - Remove SQL injection patterns
+   - Filter XSS attempts
+
+2. CORS Configuration:
+   - Whitelist allowed origins
+   - Restrict methods (GET, POST only)
+   - Limit headers
+   - No credentials in CORS
+
+3. Environment Variables:
+   - Store sensitive data in .env
+   - Never commit .env to git
+   - Use different keys for dev/prod
+   - Rotate keys regularly
+
+4. API Security:
+   - Rate limiting
+   - Request validation
+   - Error message sanitization
+   - No stack traces in production
+
+5. Data Protection:
+   - Anonymize user IPs
+   - No PII in logs
+   - Encrypt sensitive data
+   - Regular security audits
+
+
+
+
+================================================================================
+LOGGING STRATEGY
+================================================================================
+
+File: config/logger.js
+
+WINSTON LOGGER CONFIGURATION:
+
+Log Levels (in order of severity):
+1. ERROR   - System failures, exceptions, critical issues
+2. WARN    - Degraded performance, fallbacks used, potential issues
+3. INFO    - Request/response, service status, normal operations
+4. HTTP    - HTTP request details
+5. VERBOSE - Detailed execution flow
+6. DEBUG   - Debugging information, variable states
+7. SILLY   - Everything (very verbose)
+
+Transport Configuration:
+
+1. Console Transport (Development):
+   - Level: debug
+   - Format: Colorized, simple
+   - Enabled: Only in development mode
+   - Output: stdout
+
+2. File Transport - Combined Log:
+   - Level: info
+   - Filename: logs/combined.log
+   - Format: JSON with timestamp
+   - Max Size: 10MB
+   - Max Files: 5
+   - Rotation: Daily
+
+3. File Transport - Error Log:
+   - Level: error
+   - Filename: logs/error.log
+   - Format: JSON with timestamp
+   - Max Size: 10MB
+   - Max Files: 5
+   - Rotation: Daily
+
+Log Format Structure:
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "level": "info",
+  "message": "Processing user query",
+  "service": "queryController",
+  "metadata": {
+    "requestId": "req_abc123",
+    "userId": "user_456",
+    "duration": 234,
+    "intent": "travel_query"
+  }
+}
+
+LOGGING BEST PRACTICES:
+
+1. Structured Logging:
+   - Use JSON format for machine readability
+   - Include context (requestId, userId, service)
+   - Add timestamps in ISO format
+   - Include severity levels
+
+2. What to Log:
+   - All API requests (method, path, status)
+   - Service interactions (LLM, Pinecone, DB)
+   - Errors with stack traces
+   - Performance metrics (response times)
+   - Security events (rate limits, auth failures)
+   - Business events (query classifications)
+
+3. What NOT to Log:
+   - Passwords or API keys
+   - Personal Identifiable Information (PII)
+   - Credit card numbers
+   - Full request/response bodies (unless debugging)
+   - Sensitive user data
+
+4. Log Rotation:
+   - Rotate daily or when size exceeds 10MB
+   - Keep last 5 files
+   - Compress old logs (gzip)
+   - Archive to long-term storage
+   - Delete logs older than 30 days
+
+EXAMPLE LOG ENTRIES:
+
+Successful Request:
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "level": "info",
+  "message": "Query processed successfully",
+  "service": "queryController",
+  "duration": 2340,
+  "intent": "travel_query",
+  "responseLength": 456
+}
+
+Error Log:
+{
+  "timestamp": "2024-01-15T10:31:12.456Z",
+  "level": "error",
+  "message": "LLM request failed",
+  "service": "llmService",
+  "error": {
+    "message": "Connection timeout after 15000ms",
+    "code": "ETIMEDOUT",
+    "stack": "Error: timeout\n  at Timeout..."
+  },
+  "context": {
+    "model": "llama3.2:1b",
+    "attempt": 1,
+    "maxRetries": 1
+  }
+}
+
+
+================================================================================
+PERFORMANCE OPTIMIZATION
+================================================================================
+
+1. RESPONSE CACHING
+-------------------
+
+Strategy: In-memory LRU (Least Recently Used) Cache
+
+Implementation:
+const NodeCache = require('node-cache')
+const cache = new NodeCache({ 
+  stdTTL: 300,        // 5 minutes default TTL
+  checkperiod: 60,    // Check for expired keys every 60s
+  maxKeys: 100        // Maximum 100 cached entries
+})
+
+Cache Key Generation:
+- Hash of: question + intent + context
+- Example: md5("best beaches bali" + "travel_query")
+- Result: "a3f5c8d9e2b1..."
+
+Cache Flow:
+1. Receive question
+2. Generate cache key
+3. Check if key exists in cache
+4. If HIT: Return cached response immediately (< 10ms)
+5. If MISS: Process request, store in cache, return response
+
+Cache Invalidation:
+- Time-based: Expire after 5 minutes
+- Manual: Clear cache on data updates
+- Size-based: Remove oldest entries when full
+
+Benefits:
+- Reduces LLM calls by 30-40%
+- Faster response times (10ms vs 2000ms)
+- Lower server load
+- Better user experience
+
+2. DATABASE CONNECTION POOLING
+-------------------------------
+
+Configuration:
+- Pool Size: 5 connections
+- Idle Timeout: 30 seconds
+- Connection Timeout: 10 seconds
+- Queue Limit: 50 pending requests
+
+Implementation:
+const pool = new Pool({
+  max: 5,                    // Maximum connections
+  min: 1,                    // Minimum connections
+  idle: 30000,               // Close idle connections after 30s
+  acquire: 10000,            // Max time to acquire connection
+  evict: 1000                // Check for idle connections every 1s
+})
+
+Benefits:
+- Reuse connections (avoid overhead)
+- Handle concurrent requests
+- Prevent connection exhaustion
+- Automatic connection management
+
+3. VECTOR SEARCH OPTIMIZATION
+------------------------------
+
+Strategies:
+
+a) Limit Results:
+   - topK: 5 (instead of 10 or 20)
+   - Reduces network transfer
+   - Faster processing
+
+b) Namespace Filtering:
+   - Separate indexes by category
+   - Query only relevant namespace
+   - Example: "destinations", "hotels", "activities"
+
+c) Metadata Pre-filtering:
+   - Filter by category before vector search
+   - Reduces search space
+   - Example: category = "beach" AND location = "Asia"
+
+d) Embedding Caching:
+   - Cache embeddings for common queries
+   - Avoid re-computing same embeddings
+   - 100-200ms saved per query
+
+e) Batch Operations:
+   - Batch multiple queries together
+   - Reduce API calls to Pinecone
+   - Better throughput
+
+4. LLM OPTIMIZATION
+-------------------
+
+Model Selection:
+- Use smaller model: llama3.2:1b (not 7b or 13b)
+- Faster inference: 20-30 tokens/sec
+- Lower memory: ~1.5GB RAM
+- Trade-off: Slightly lower quality
+
+Parameter Tuning:
+- num_predict: 500 (limit response length)
+- temperature: 0.7 (balance creativity/accuracy)
+- top_k: 40 (limit token selection)
+- stop sequences: Prevent rambling
+
+Timeout Management:
+- Set aggressive timeout: 15 seconds
+- Retry once on failure
+- Fallback to cached response
+- Return partial response if needed
+
+Prompt Optimization:
+- Keep prompts concise (< 1000 tokens)
+- Clear instructions
+- Structured format
+- Avoid redundancy
+
+5. FRONTEND OPTIMIZATION
+------------------------
+
+Code Splitting:
+- Lazy load components
+- Reduce initial bundle size
+- Faster page load
+
+Debouncing:
+- Debounce user input (300ms)
+- Prevent excessive API calls
+- Better user experience
+
+Virtual Scrolling:
+- Render only visible messages
+- Handle long conversation history
+- Smooth performance
+
+Asset Optimization:
+- Minify CSS/JS
+- Compress images
+- Use CDN for static assets
+- Enable browser caching
+
+6. NETWORK OPTIMIZATION
+-----------------------
+
+Compression:
+- Enable gzip/brotli compression
+- Reduce payload size by 70-80%
+- Faster data transfer
+
+HTTP/2:
+- Multiplexing
+- Header compression
+- Server push
+
+Keep-Alive:
+- Reuse TCP connections
+- Reduce connection overhead
+- Lower latency
+
+CDN Usage:
+- Serve static assets from CDN
+- Reduce server load
+- Global distribution
+
+
+================================================================================
+ANALYTICS & MONITORING
+================================================================================
+
+TRACKED METRICS:
+
+1. Query Volume Metrics:
+   - Total queries per day/hour/minute
+   - Peak usage times
+   - Query distribution by intent
+   - Unique users per day
+   - Queries per user
+
+2. Performance Metrics:
+   - Average response time
+   - Median response time
+   - P95 latency (95th percentile)
+   - P99 latency (99th percentile)
+   - Cache hit rate
+   - LLM generation speed (tokens/sec)
+   - Vector search latency
+   - Database query time
+
+3. Quality Metrics:
+   - Success rate (%)
+   - Error rate by type
+   - Intent classification accuracy
+   - User satisfaction (if feedback enabled)
+   - Response relevance score
+
+4. System Health Metrics:
+   - Ollama uptime (%)
+   - Pinecone latency
+   - Database connection pool usage
+   - Memory usage
+   - CPU usage
+   - Disk space
+
+5. Business Metrics:
+   - Most popular destinations
+   - Common query patterns
+   - User engagement (messages per session)
+   - Conversion rate (if applicable)
+
+STATISTICS ENDPOINT:
+
+GET /api/stats
+
+Response Structure:
+{
+  "overview": {
+    "totalQueries": 1523,
+    "avgResponseTime": 2.4,
+    "successRate": 97.8,
+    "cacheHitRate": 34.2
+  },
+  "intents": [
+    { "intent": "travel_query", "count": 1245, "percentage": 81.7 },
+    { "intent": "greeting", "count": 278, "percentage": 18.3 }
+  ],
+  "performance": {
+    "avgResponseTime": 2.4,
+    "medianResponseTime": 2.1,
+    "p95Latency": 4.5,
+    "p99Latency": 6.8
+  },
+  "errors": {
+    "total": 34,
+    "breakdown": {
+      "timeout": 15,
+      "validation": 8,
+      "service_unavailable": 11
+    }
+  },
+  "systemHealth": {
+    "ollamaUptime": 99.5,
+    "pineconeLatency": 120,
+    "dbConnectionsActive": 3,
+    "memoryUsage": 1.2
+  }
+}
+
+MONITORING TOOLS:
+
+1. Application Monitoring:
+   - Winston logs
+   - Custom metrics collection
+   - Performance tracking
+   - Error tracking
+
+2. Infrastructure Monitoring:
+   - CPU/Memory usage
+   - Disk I/O
+   - Network traffic
+   - Process health
+
+3. Alerting:
+   - Error rate threshold (> 5%)
+   - Response time threshold (> 5s)
+   - Service downtime
+   - Resource exhaustion
+
+4. Dashboards:
+   - Real-time metrics
+   - Historical trends
+   - Error logs
+   - System health
+
+
+================================================================================
+DEPLOYMENT & OPERATIONS
+================================================================================
+
+STARTUP SEQUENCE:
+
+1. Load Environment Variables
+   - Read .env file
+   - Validate required variables
+   - Set defaults for optional variables
+
+2. Initialize Logger
+   - Configure Winston
+   - Set log levels
+   - Create log directories
+
+3. Connect to SQLite Database
+   - Open database connection
+   - Create tables if not exist
+   - Run migrations
+
+4. Load Agent Data
+   - Read agentData.json
+   - Parse and validate
+   - Insert into database
+
+5. Initialize Pinecone Client
+   - Authenticate with API key
+   - Connect to index
+   - Verify connection
+
+6. Load Embedding Model
+   - Download Xenova model (if not cached)
+   - Load into memory
+   - Warm up model
+
+7. Start Ollama Health Check
+   - Verify Ollama is running
+   - Check model availability
+   - Test inference
+
+8. Initialize Express App
+   - Create Express instance
+   - Set up middleware
+
+9. Register Middleware
+   - CORS
+   - Rate limiter
+   - Body parser
+   - Error handler
+
+10. Register Routes
+    - /api/ask
+    - /api/stats
+    - Health check endpoints
+
+11. Start Server
+    - Listen on PORT
+    - Log startup message
+    - Ready to accept requests
+
+ENVIRONMENT CONFIGURATION:
+
+Development (.env.development):
+PORT=5000
+NODE_ENV=development
+LOG_LEVEL=debug
+OLLAMA_URL=http://localhost:11434/api/generate
+OLLAMA_MODEL=llama3.2:1b
+LLM_TIMEOUT=15000
+LLM_MAX_RETRIES=1
+CACHE_TTL=300000
+PINECONE_API_KEY=dev_key
+PINECONE_INDEX_NAME=travel-knowledge-dev
+PINECONE_ENVIRONMENT=us-west1-gcp
+
+Production (.env.production):
+PORT=5000
+NODE_ENV=production
+LOG_LEVEL=info
+OLLAMA_URL=http://ollama-service:11434/api/generate
+OLLAMA_MODEL=llama3.2:1b
+LLM_TIMEOUT=15000
+LLM_MAX_RETRIES=2
+CACHE_TTL=600000
+PINECONE_API_KEY=prod_key
+PINECONE_INDEX_NAME=travel-knowledge-prod
+PINECONE_ENVIRONMENT=us-east1-gcp
+
+MAINTENANCE TASKS:
+
+Daily:
+- Monitor error logs
+- Check disk space (logs, database)
+- Verify Ollama is running
+- Review response times
+- Check for anomalies
+
+Weekly:
+- Analyze query patterns
+- Update knowledge base (Pinecone)
+- Review and optimize prompts
+- Check for model updates
+- Performance benchmarking
+
+Monthly:
+- Database cleanup (old queries)
+- Log rotation and archival
+- Security audit
+- Dependency updates
+- Backup verification
+
+BACKUP STRATEGY:
+
+Database Backup:
+- Frequency: Daily
+- Retention: 30 days
+- Location: External storage
+- Method: SQLite .backup command
+
+Logs Backup:
+- Frequency: Weekly
+- Retention: 90 days
+- Compression: gzip
+- Location: Archive storage
+
+Configuration Backup:
+- Frequency: On change
+- Version control: Git
+- Encrypted: Yes (for .env)
+
+DISASTER RECOVERY:
+
+Recovery Time Objective (RTO): 1 hour
+Recovery Point Objective (RPO): 24 hours
+
+Recovery Steps:
+1. Restore database from latest backup
+2. Restore configuration files
+3. Reinstall dependencies (npm install)
+4. Restart Ollama service
+5. Verify Pinecone connection
+6. Start application
+7. Run health checks
+8. Monitor for issues
+
+
+================================================================================
+TROUBLESHOOTING GUIDE
+================================================================================
+
+COMMON ISSUES AND SOLUTIONS:
+
+1. OLLAMA CONNECTION ERROR
+--------------------------
+Error: "Cannot connect to Ollama" or "ECONNREFUSED"
+
+Diagnosis:
+- Check if Ollama is running: ollama list
+- Verify URL in .env: OLLAMA_URL
+- Check port availability: netstat -an | findstr 11434
+
+Solutions:
+a) Start Ollama service:
+   ollama serve
+
+b) Verify model is installed:
+   ollama list
+   ollama pull llama3.2:1b
+
+c) Check firewall settings:
+   - Allow port 11434
+   - Disable antivirus temporarily
+
+d) Test Ollama directly:
+   curl http://localhost:11434/api/generate -d '{
+     "model": "llama3.2:1b",
+     "prompt": "Hello"
+   }'
+
+2. PINECONE CONNECTION ERROR
+----------------------------
+Error: "Pinecone initialization failed" or "Invalid API key"
+
+Diagnosis:
+- Verify API key in .env
+- Check index name
+- Verify environment name
+- Check Pinecone dashboard
+
+Solutions:
+a) Validate API key:
+   - Log in to Pinecone dashboard
+   - Generate new API key if needed
+   - Update .env file
+
+b) Verify index exists:
+   - Check Pinecone dashboard
+   - Create index if missing:
+     * Name: travel-knowledge
+     * Dimension: 384
+     * Metric: cosine
+
+c) Check network connectivity:
+   - Test internet connection
+   - Check firewall rules
+   - Verify DNS resolution
+
+3. PORT ALREADY IN USE
+----------------------
+Error: "Port 5000 is already in use" or "EADDRINUSE"
+
+Diagnosis:
+- Check what's using the port:
+  netstat -ano | findstr :5000
+
+Solutions:
+a) Kill the process:
+   taskkill /PID <PID> /F
+
+b) Change port in .env:
+   PORT=5001
+
+c) Use different port for frontend:
+   Update API_URL in App.js
+
+4. FRONTEND CANNOT CONNECT TO BACKEND
+-------------------------------------
+Error: "Failed to fetch" or "Network error"
+
+Diagnosis:
+- Check if backend is running
+- Verify backend port (5000)
+- Check CORS configuration
+- Verify API_URL in frontend
+
+Solutions:
+a) Start backend:
+   cd backend
+   npm start
+
+b) Check CORS settings in server.js:
+   cors({ origin: 'http://localhost:3000' })
+
+c) Verify API_URL in App.js:
+   const API_URL = 'http://localhost:5000/api/ask'
+
+d) Check browser console for errors
+
+5. SLOW RESPONSE TIMES
+----------------------
+Symptom: Responses take > 10 seconds
+
+Diagnosis:
+- Check LLM model size
+- Monitor CPU/RAM usage
+- Check network latency
+- Review logs for bottlenecks
+
+Solutions:
+a) Use smaller model:
+   OLLAMA_MODEL=llama3.2:1b
+
+b) Increase timeout:
+   LLM_TIMEOUT=30000
+
+c) Enable caching:
+   CACHE_TTL=600000
+
+d) Optimize prompts:
+   - Reduce prompt length
+   - Limit context size
+
+e) Check system resources:
+   - Close unnecessary applications
+   - Increase RAM allocation
+   - Use GPU if available
+
+6. DATABASE LOCKED ERROR
+------------------------
+Error: "Database is locked" or "SQLITE_BUSY"
+
+Diagnosis:
+- Multiple processes accessing DB
+- Long-running transactions
+- Insufficient timeout
+
+Solutions:
+a) Increase busy timeout:
+   db.configure('busyTimeout', 5000)
+
+b) Use connection pooling
+
+c) Optimize queries:
+   - Use indexes
+   - Avoid long transactions
+
+d) Check for deadlocks
+
+7. MEMORY LEAKS
+---------------
+Symptom: Memory usage increases over time
+
+Diagnosis:
+- Monitor memory usage
+- Check for unclosed connections
+- Review event listeners
+
+Solutions:
+a) Close database connections:
+   db.close()
+
+b) Remove event listeners:
+   stream.removeAllListeners()
+
+c) Clear cache periodically:
+   cache.flushAll()
+
+d) Restart application regularly
+
+8. RATE LIMIT EXCEEDED
+----------------------
+Error: "Too many requests" (429)
+
+Diagnosis:
+- Check request count
+- Verify IP address
+- Review rate limit settings
+
+Solutions:
+a) Wait for rate limit reset (15 minutes)
+
+b) Adjust rate limit in server.js:
+   max: 200  // Increase limit
+
+c) Implement user authentication:
+   - Different limits per user tier
+
+d) Use caching to reduce requests
+
+
+================================================================================
+ADVANCED FEATURES & EXTENSIONS
+================================================================================
+
+POTENTIAL ENHANCEMENTS:
+
+1. Multi-Language Support
+   - Detect user language
+   - Translate queries
+   - Respond in user's language
+   - Use multilingual embeddings
+
+2. Conversation History
+   - Store chat sessions
+   - Maintain context across messages
+   - Reference previous questions
+   - Personalized recommendations
+
+3. User Authentication
+   - Login/signup system
+   - User profiles
+   - Saved preferences
+   - Booking history
+
+4. Advanced Analytics
+   - User behavior tracking
+   - A/B testing
+   - Conversion funnels
+   - Heatmaps
+
+5. Integration with Travel APIs
+   - Flight booking (Amadeus, Skyscanner)
+   - Hotel reservations (Booking.com)
+   - Weather data (OpenWeather)
+   - Currency conversion
+
+6. Voice Interface
+   - Speech-to-text
+   - Text-to-speech
+   - Voice commands
+   - Hands-free interaction
+
+7. Image Recognition
+   - Upload destination photos
+   - Identify landmarks
+   - Visual search
+   - Photo recommendations
+
+8. Personalization
+   - User preferences
+   - Budget constraints
+   - Travel style
+   - Past behavior
+
+9. Recommendation Engine
+   - Collaborative filtering
+   - Content-based filtering
+   - Hybrid approach
+   - Real-time recommendations
+
+10. Mobile Application
+    - React Native app
+    - Push notifications
+    - Offline mode
+    - Location services
+
+
+================================================================================
+CONCLUSION
+================================================================================
+
+This documentation provides a comprehensive overview of the AI Travel Chatbot
+system, covering:
+
+- Complete request flow from user input to response display
+- Detailed explanation of each service and component
+- Database operations and schema design
+- Security measures and error handling
+- Performance optimization techniques
+- Monitoring and analytics strategies
+- Deployment and operational procedures
+- Troubleshooting guide for common issues
+- Potential enhancements and future features
+
+The system is designed to be:
+- Scalable: Handle increasing user load
+- Maintainable: Clear code structure and documentation
+- Reliable: Robust error handling and fallbacks
+- Performant: Optimized for speed and efficiency
+- Secure: Protected against common vulnerabilities
+
+For additional support or questions, refer to the README.md file or
+review the inline code comments in each service file.
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
