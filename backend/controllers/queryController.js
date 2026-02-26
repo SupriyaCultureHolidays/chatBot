@@ -45,9 +45,55 @@ exports.ask = async (req, res, next) => {
             res.write("I can only answer questions about travel agent profiles and login history. Please ask something like:\n");
             res.write("- 'Find agent John Smith'\n");
             res.write("- 'Show all agents from ABC Company'\n");
-            res.write("- 'When did CHAGT001 last login?'");
+            res.write("- 'When did CHAGT001 last login?'\n");
+            res.write("- 'How many times did agent@email.com login?'");
             res.end();
             return;
+        }
+
+        // Step 2.5: Handle analytics queries
+        if (intentResult.primaryIntent === 'MOST_ACTIVE' || intentResult.primaryIntent === 'LEAST_ACTIVE') {
+            const analyticsType = intentResult.primaryIntent;
+            const analyticsResults = await vectorService.getAnalytics(analyticsType, 10);
+            
+            if (analyticsResults.length > 0) {
+                const contexts = analyticsResults.map(r => r.content);
+                const prompt = buildDynamicPrompt(question, contexts, intentResult);
+                
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('Transfer-Encoding', 'chunked');
+                
+                try {
+                    const result = await llmService.generate(prompt, res);
+                    const totalTime = Date.now() - startTime;
+                    logger.info('Analytics query completed', { totalTime, service: result.service, ip: clientIp });
+                    return;
+                } catch (err) {
+                    logger.error('LLM failed for analytics', { error: err.message });
+                }
+            }
+        }
+
+        // Step 2.6: Handle nationality/country queries - get ALL profiles
+        if (intentResult.primaryIntent === 'NATIONALITY_SEARCH') {
+            const allProfiles = await vectorService.searchByNationality(question);
+            
+            if (allProfiles.length > 0) {
+                const contexts = allProfiles.map(agent => vectorService._buildAgentContent(agent, intentResult.needsLoginData));
+                const prompt = buildDynamicPrompt(question, contexts, intentResult);
+                
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('Transfer-Encoding', 'chunked');
+                
+                try {
+                    const result = await llmService.generate(prompt, res);
+                    const totalTime = Date.now() - startTime;
+                    logger.info('Nationality query completed', { totalTime, count: allProfiles.length, ip: clientIp });
+                    return;
+                } catch (err) {
+                    logger.error('LLM failed for nationality', { error: err.message });
+                }
+            }
         }
 
         // Step 3: Search relevant data with intent-based options
