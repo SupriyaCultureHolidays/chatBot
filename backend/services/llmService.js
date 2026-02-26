@@ -4,15 +4,17 @@ const logger = require('../config/logger');
 class LLMService {
     constructor() {
         this.ollamaUrl = process.env.OLLAMA_URL;
-        this.ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2:latest';
+        this.ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2:1b';
         this.fallbackUrl = process.env.FALLBACK_LLM_URL;
         this.fallbackType = process.env.FALLBACK_LLM_TYPE || 'vllm';
         this.fallbackModel = process.env.FALLBACK_MODEL || 'meta-llama/Llama-2-7b-chat-hf';
-        this.timeout = parseInt(process.env.LLM_TIMEOUT) || 30000;
-        this.maxRetries = parseInt(process.env.LLM_MAX_RETRIES) || 2;
+        this.timeout = parseInt(process.env.LLM_TIMEOUT) || 15000;
+        this.maxRetries = parseInt(process.env.LLM_MAX_RETRIES) || 1;
+        this.cache = new Map();
+        this.cacheTTL = parseInt(process.env.CACHE_TTL) || 300000;
     }
 
-    async generateWithOllama(prompt, res) {
+    async generateWithOllama(prompt, res, cacheKey) {
         if (!this.ollamaUrl) {
             throw new Error('Ollama URL not configured');
         }
@@ -23,7 +25,8 @@ class LLMService {
             body: JSON.stringify({
                 model: this.ollamaModel,
                 prompt: prompt,
-                stream: true
+                stream: true,
+                options: { num_predict: 300, temperature: 0.7 }
             })
         });
 
@@ -33,6 +36,7 @@ class LLMService {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let fullResponse = '';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -42,8 +46,18 @@ class LLMService {
             chunk.split('\n').filter(Boolean).forEach(line => {
                 try {
                     const json = JSON.parse(line);
-                    if (json.response) res.write(json.response);
-                    if (json.done) res.end();
+                    if (json.response) {
+                        res.write(json.response);
+                        fullResponse += json.response;
+                    }
+                    if (json.done) {
+                        res.end();
+                        this.cache.set(cacheKey, { response: fullResponse, timestamp: Date.now() });
+                        if (this.cache.size > 100) {
+                            const firstKey = this.cache.keys().next().value;
+                            this.cache.delete(firstKey);
+                        }
+                    }
                 } catch (e) {}
             });
         }
@@ -66,12 +80,25 @@ class LLMService {
         res.end();
     }
 
+    getCacheKey(prompt) {
+        return require('crypto').createHash('md5').update(prompt).digest('hex');
+    }
+
     async generate(prompt, res, retryCount = 0) {
-        // If Ollama is configured, try it first
+        const cacheKey = this.getCacheKey(prompt);
+        const cached = this.cache.get(cacheKey);
+        
+        if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+            logger.info('Cache hit', { key: cacheKey.substring(0, 8) });
+            res.write(cached.response);
+            res.end();
+            return { success: true, service: 'cache' };
+        }
+
         if (this.ollamaUrl) {
             try {
                 logger.info('Attempting LLM generation', { service: 'ollama', retry: retryCount });
-                await this.generateWithOllama(prompt, res);
+                const response = await this.generateWithOllama(prompt, res, cacheKey);
                 return { success: true, service: 'ollama' };
             } catch (error) {
                 logger.warn('Ollama failed', { error: error.message, retry: retryCount });

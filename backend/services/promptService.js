@@ -17,26 +17,22 @@ const buildDynamicPrompt = (question, contexts, intentResult) => {
 
   const intentInstructions = buildIntentInstructions(intentResult);
 
-  return `You are a travel agent database assistant. Answer questions using ONLY the records below.
+  return `You are a travel agent database assistant. Answer using ONLY the records below.
 
-=== YOUR RULES ===
 ${intentInstructions}
 
-=== GENERAL RULES ===
-- Use ONLY data from the records below. Never invent data.
-- If data spans multiple records, JOIN them by AgentID.
-- If asked for a list, return ALL matching agents, not just one.
-- If no data found after checking all records, say: "No matching records found for your query."
-- Format dates as: DD-MMM-YYYY (e.g., 15-Jan-2024)
-- Be concise but complete.
+RULES:
+- Use ONLY data from records. Never invent data.
+- If asked for a list, return ALL matching agents.
+- Format dates as: DD-MMM-YYYY
+- Be concise.
 
-=== DATABASE RECORDS (${contexts.length} found) ===
+RECORDS (${contexts.length}):
 ${contextText}
 
-=== USER QUESTION ===
-${question}
+QUESTION: ${question}
 
-=== YOUR ANSWER ===`;
+ANSWER:`;
 };
 
 /**
@@ -50,122 +46,43 @@ const buildIntentInstructions = (intentResult) => {
   intentResult.intents.forEach(({ intent }) => {
     switch (intent) {
       case 'LOGIN_BY_ID':
-        instructions.push(
-          "- For login ID queries: Find the login record with that specific ID number.",
-          "- Show the AGENTID and LOGINDATE for that login record.",
-          "- If agent profile exists, include agent name and details."
-        );
+        instructions.push("Find login record by ID. Show AGENTID and LOGINDATE.");
         break;
-
       case 'FIRST_LOGIN':
-        instructions.push(
-          "- For 'first login' questions: Find the EARLIEST date in all login records.",
-          "- Sort login dates ascending and return the first one."
-        );
+        instructions.push("Find EARLIEST login date.");
         break;
-
       case 'LAST_LOGIN':
-        instructions.push(
-          "- For 'last login' questions: Find the MOST RECENT date in Login History for the agent.",
-          "- Sort login dates descending and return the first one."
-        );
+        instructions.push("Find MOST RECENT login date.");
         break;
-
       case 'LOGIN_COUNT':
-        instructions.push(
-          "- For login count: Count ALL login entries for the agent and return the number.",
-          "- Handle case-insensitive matching of AGENTID."
-        );
+        instructions.push("Count ALL login entries for the agent.");
         break;
-
       case 'ALL_AGENTS_COMPANY':
-        instructions.push(
-          "- For company queries: List EVERY agent with that company name.",
-          "- Format as numbered list with: Name, AgentID, Email.",
-          "- Handle fuzzy company name matching (e.g., 'Inteletravel' vs 'InteleTravel')."
-        );
+        instructions.push("List EVERY agent with that company. Format: Name, AgentID, Email.");
         break;
-
       case 'INACTIVE_AGENTS':
       case 'LEAST_ACTIVE':
-        instructions.push(
-          "- For inactive/least active agents: Find agents whose Last Login is oldest or missing.",
-          "- Calculate how many days since their last login if possible.",
-          "- Sort by login count ascending."
-        );
+        instructions.push("Find agents with oldest Last Login or missing logins.");
         break;
-
       case 'MOST_ACTIVE':
-        instructions.push(
-          "- For most active: Find the agent with highest Total Logins count.",
-          "- Rank agents from most to least active.",
-          "- Group logins by AGENTID (case-insensitive)."
-        );
+        instructions.push("Find agent with highest Total Logins.");
         break;
-
       case 'NATIONALITY_SEARCH':
-        instructions.push(
-          "- For nationality queries: List ALL agents matching that nationality.",
-          "- Include Name, AgentID, Company for each.",
-          "- Handle case-insensitive nationality matching."
-        );
+        instructions.push("List ALL agents matching that nationality.");
         break;
-
       case 'COUNT_QUERY':
-        instructions.push(
-          "- For count queries: Count matching records and give a clear number.",
-          "- Example: 'There are 5 agents from XYZ Company.'"
-        );
+        instructions.push("Count matching records and give clear number.");
         break;
-
       case 'DATE_RANGE':
-        instructions.push(
-          "- For date range queries: Filter login dates that fall within the specified range.",
-          "- Return agents who match the date criteria.",
-          "- Parse dates like '2022-05-04' or 'May 4, 2022'."
-        );
+        instructions.push("Filter login dates within specified range.");
         break;
-
-      case 'MULTIPLE_AGENTIDS':
-        instructions.push(
-          "- For multiple AgentID queries: Find agents with same email but different AgentIDs.",
-          "- Group by email and show all associated AgentIDs."
-        );
-        break;
-
-      case 'DIRTY_DATA':
-        instructions.push(
-          "- For dirty data detection: Look for spaces in emails, mixed case, typos.",
-          "- Report inconsistencies in data format."
-        );
-        break;
-
-      case 'AGENTS_NOT_IN_PROFILE':
-        instructions.push(
-          "- For agents not in profile: Find AGENTIDs in login data that don't have agent profiles.",
-          "- List these AGENTIDs with their login counts."
-        );
-        break;
-
       case 'LIST_ALL':
-        instructions.push(
-          "- List ALL agents in the records provided.",
-          "- Format as a numbered list."
-        );
-        break;
-
-      case 'OUT_OF_SCOPE':
-        instructions.push(
-          "- This question is outside the travel agent database scope.",
-          "- Politely say you can only answer questions about agent profiles and login history."
-        );
+        instructions.push("List ALL agents in records.");
         break;
     }
   });
 
-  return instructions.length > 0
-    ? instructions.join('\n')
-    : "- Answer the question directly using the records provided.";
+  return instructions.length > 0 ? instructions.join('\n') : "Answer directly using records.";
 };
 
 module.exports = { buildDynamicPrompt };

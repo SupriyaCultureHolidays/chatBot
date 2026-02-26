@@ -259,6 +259,7 @@ class VectorService {
                     }
                 }
             });
+            if (results.length > 0) return results.slice(0, limit);
         }
 
         [...emails, ...agentIDs].forEach(identifier => {
@@ -275,6 +276,7 @@ class VectorService {
                 }
             }
         });
+        if (results.length > 0) return results.slice(0, limit);
 
         if (results.length === 0) {
             const queryLower = normalizedQuery.toLowerCase();
@@ -334,8 +336,6 @@ class VectorService {
                         else if (firstMatch || lastMatch) matchScore = 85;
                     } else if (name.includes(queryName)) {
                         matchScore = 90;
-                    } else if (queryName.includes(name)) {
-                        matchScore = 88;
                     }
                     
                     if (matchScore > 0 && !foundAgentIDs.has(agent.AgentID)) {
@@ -344,6 +344,7 @@ class VectorService {
                     }
                 });
             }
+            if (results.length >= limit) return results.slice(0, limit);
 
             if (results.length === 0 && tokens.length > 0) {
                 const fuzzyMatches = [];
@@ -351,30 +352,28 @@ class VectorService {
                     const agentList = Array.isArray(agents) ? agents : [agents];
                     const nameParts = name.split(/\s+/);
                     let matchScore = 0;
-                    let totalPossible = 0;
                     
                     tokens.forEach(token => {
                         if (token.length < 2) return;
-                        totalPossible++;
-                        
                         nameParts.forEach(part => {
                             if (part === token) matchScore += 2;
                             else if (part.startsWith(token) || token.startsWith(part)) matchScore += 1.5;
-                            else if (this._fuzzyMatch(token, part, 0.70)) matchScore += 1;
+                            else if (this._fuzzyMatch(token, part, 0.75)) matchScore += 1;
                         });
                     });
                     
-                    if (totalPossible > 0 && matchScore >= totalPossible * 0.5) {
+                    if (matchScore >= tokens.length) {
                         agentList.forEach(agent => fuzzyMatches.push({ agent, score: matchScore }));
                     }
                 }
-                fuzzyMatches.sort((a, b) => b.score - a.score).slice(0, 10).forEach(match => {
+                fuzzyMatches.sort((a, b) => b.score - a.score).slice(0, 5).forEach(match => {
                     if (!foundAgentIDs.has(match.agent.AgentID)) {
                         foundAgentIDs.add(match.agent.AgentID);
                         results.push({ id: match.agent.AgentID, content: this._buildAgentContent(match.agent, includeLogins), score: 80 });
                     }
                 });
             }
+            if (results.length > 0) return results.slice(0, limit);
 
             if (results.length === 0) {
                 const agentScores = new Map();
@@ -405,7 +404,7 @@ class VectorService {
     }
 
     _buildAgentContent(agent, includeLogins = true) {
-        let content = `AgentID: ${agent.AgentID || 'N/A'}\nName: ${agent.Name || 'N/A'}\nEmail: ${agent.UserName || 'N/A'}\nCompany: ${agent.Comp_Name || 'N/A'}\nNationality: ${agent.Nationality || 'N/A'}\nCreated: ${agent.CreatedDate || 'N/A'}`;
+        let content = `AgentID: ${agent.AgentID || 'N/A'}\nName: ${agent.Name || 'N/A'}\nEmail: ${agent.UserName || 'N/A'}\nCompany: ${agent.Comp_Name || 'N/A'}\nNationality: ${agent.Nationality || 'N/A'}`;
 
         if (includeLogins) {
             const loginsByEmail = this._getLoginHistory(agent.UserName);
@@ -419,10 +418,9 @@ class VectorService {
                 content += `\nTotal Logins: ${uniqueLogins.length}`;
                 if (sorted.length > 1) {
                     content += `\nFirst Login: ${sorted[sorted.length - 1].LOGINDATE}`;
-                    content += `\nRecent Login History: ${sorted.slice(0, 5).map(l => l.LOGINDATE).join(', ')}`;
+                    const recentLogins = sorted.slice(0, 3).map(l => l.LOGINDATE).join(', ');
+                    content += `\nRecent Logins: ${recentLogins}`;
                 }
-            } else if (agent.LastLogin) {
-                content += `\nLast Login: ${agent.LastLogin}`;
             }
         }
 
