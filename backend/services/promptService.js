@@ -23,9 +23,11 @@ ${intentInstructions}
 
 RULES:
 - Use ONLY data from records. Never invent data.
-- If asked for a list, return ALL matching agents.
-- Format dates as: DD-MMM-YYYY
-- Be concise.
+- If asked for a list, return ALL matching agents from the records.
+- Format ALL dates as: DD-MMM-YYYY (e.g. 04-May-2022). Convert ISO dates like "2022-05-04T00:02:38" → "04-May-2022".
+- For login counts, use the "Total Logins" field directly.
+- Be concise. Do not repeat the question.
+- If data is missing, say "No data available" — do not guess.
 
 RECORDS (${contexts.length}):
 ${contextText}

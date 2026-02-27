@@ -20,12 +20,12 @@ const INTENT_PATTERNS = {
     dataNeeded: ['logins', 'profile']
   },
   AGENT_BY_NAME: {
-    pattern: /who is|find|details|info|tell me about|profile|agent.*name/i,
+    pattern: /who is|find|details|info|tell me about|profile|agent.*name|what.*email|what.*agentid|what.*company|what.*nationality|email.*of|agentid.*of|company.*of|nationality.*of/i,
     description: "Find agent by name",
     dataNeeded: ['profile', 'logins']
   },
   LAST_LOGIN: {
-    pattern: /last\s*(login|seen|active|access|time)|when.*last.*login|most\s*recent\s*login/i,
+    pattern: /(?:last|most\s*recent|latest)\s*(?:login|seen|active|access|time)|when.*last.*login/i,
     description: "Get last login date",
     dataNeeded: ['profile', 'logins']
   },
@@ -60,7 +60,7 @@ const INTENT_PATTERNS = {
     dataNeeded: ['logins', 'profile']
   },
   RECENT_LOGINS: {
-    pattern: /recent|latest|today|this\s*week|this\s*month|last\s*\d+\s*days|on\s*\d{4}/i,
+    pattern: /(?:today|this\s*week|this\s*month|last\s*\d+\s*days|on\s+\d{4}|in\s+\d{4})/i,
     description: "Recently logged in agents",
     dataNeeded: ['logins', 'profile']
   },

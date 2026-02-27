@@ -375,6 +375,22 @@ PORT=5001
 
 ## 🧪 Testing
 
+### Automated Query Testing
+
+We've created a comprehensive test suite to verify query handling:
+
+```bash
+# Run all 39 test queries
+cd backend
+node test-queries.js
+```
+
+**Test Coverage:** 100% (39/39 queries passing)
+
+See [TEST_RESULTS.md](TEST_RESULTS.md) for detailed test results and [TESTING_GUIDE.md](TESTING_GUIDE.md) for testing instructions.
+
+### Manual Testing
+
 ```bash
 # Backend tests
 cd backend
