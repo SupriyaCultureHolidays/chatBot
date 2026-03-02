@@ -1,0 +1,52 @@
+version: "3.1"
+
+stories:
+  - story: greet
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - story: goodbye
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - story: query agent
+    steps:
+      - intent: query_agent
+      - action: action_dynamic_query
+
+  - story: query field
+    steps:
+      - intent: query_field
+      - action: action_dynamic_query
+
+  - story: query profile
+    steps:
+      - intent: query_profile
+      - action: action_dynamic_query
+
+  - story: query login
+    steps:
+      - intent: query_login
+      - action: action_dynamic_query
+
+  - story: query by company
+    steps:
+      - intent: query_by_company
+      - action: action_dynamic_query
+
+  - story: query by nationality
+    steps:
+      - intent: query_by_nationality
+      - action: action_dynamic_query
+
+  - story: query statistics
+    steps:
+      - intent: query_statistics
+      - action: action_dynamic_query
+
+  - story: query date range
+    steps:
+      - intent: query_date_range
+      - action: action_dynamic_query

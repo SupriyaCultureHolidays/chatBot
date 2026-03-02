@@ -1,0 +1,54 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - query_agent
+  - query_field
+  - query_profile
+  - query_login
+  - query_by_company
+  - query_by_nationality
+  - query_statistics
+  - query_date_range
+  - nlu_fallback
+
+entities:
+  - query
+  - start_date
+  - end_date
+
+slots:
+  query:
+    type: text
+    mappings:
+      - type: from_entity
+        entity: query
+  start_date:
+    type: text
+    mappings:
+      - type: from_entity
+        entity: start_date
+  end_date:
+    type: text
+    mappings:
+      - type: from_entity
+        entity: end_date
+
+responses:
+  utter_greet:
+    - text: "Hello! Ask me about agents, logins, or statistics."
+  
+  utter_goodbye:
+    - text: "Goodbye!"
+  
+  utter_default:
+    - text: "I can help with agent information. Try asking about specific agents, companies, or login data."
+
+actions:
+  - action_dynamic_query
+  - action_default_fallback
+
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: true

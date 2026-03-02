@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# Rasa
+rasa/models/
+rasa/.rasa/
+rasa/chroma_db/
+rasa/venv/
+
+# Logs
+*.log
+logs/
+
+# Build
+frontend/build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.pytest_cache/

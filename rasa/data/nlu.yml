@@ -1,0 +1,128 @@
+version: "3.1"
+
+nlu:
+  - intent: greet
+    examples: |
+      - hey
+      - hello
+      - hi
+      - good morning
+
+  - intent: goodbye
+    examples: |
+      - bye
+      - goodbye
+      - see you
+
+  - intent: query_agent
+    examples: |
+      - who is [demo demoo](query)
+      - find agent [CHAGT0001000024104](query)
+      - tell me about [mailto:gautam@cultureholidays.com](query)
+      - show [RAY HARPER](query)
+      - find [demo](query)
+      - who is [ray harper](query)
+      - [CHAGT9999999999](query)
+      - lookup [gautam@cultureholidays.com](query)
+      - search for [demo demoo](query)
+      - get info on [CHAGT00101](query)
+      - find agent [demo](query)
+      - find [CHAGT9999999999](query)
+      - tell me about [gautam@cultureholidays.com](query)
+
+  - intent: query_field
+    examples: |
+      - what is [RAY HARPER](query) email
+      - what is the email of [RAY HARPER](query)
+      - [demo demoo](query) email
+      - what is the agentid of [RAY HARPER](query)
+      - what is the agent id of [RAY HARPER](query)
+      - what company does [demo demoo](query) work at
+      - what nationality is [RAY HARPER](query)
+      - [RAY HARPER](query) nationality
+      - company of [demo demoo](query)
+      - [gautam@cultureholidays.com](query) company
+      - nationality of [CHAGT0001000024104](query)
+      - [mailto:gautam@cultureholidays.com](query) email
+      - email of [mailto:gautam@cultureholidays.com](query)
+
+  - intent: query_profile
+    examples: |
+      - give me full profile of [CHAGT00101](query)
+      - full profile of [RAY HARPER](query)
+      - complete details of [demo demoo](query)
+      - show everything about [CHAGT0001000024104](query)
+      - all details of [gautam@cultureholidays.com](query)
+
+  - intent: query_login
+    examples: |
+      - when did [mailto:gautam@cultureholidays.com](query) last login
+      - when did [CHAGT0001000024104](query) last login
+      - last login of [demo demoo](query)
+      - [RAY HARPER](query) last login
+      - how many times did [mailto:gautam@cultureholidays.com](query) login
+      - how many times did [RAY HARPER](query) login
+      - login count of [demo demoo](query)
+      - show login history for [demo demoo](query)
+      - login history of [CHAGT0001000024104](query)
+      - what was the first login of [CHAGT0001000024104](query)
+      - first login of [RAY HARPER](query)
+      - when did [nobody@fake.com](query) last login
+      - find login id [1](query)
+      - show login [5](query)
+      - [gautam@cultureholidays.com](query) last login
+      - [mailto:nobody@fake.com](query) last login
+
+  - intent: query_by_company
+    examples: |
+      - show all agents from [Culture Holidays](query)
+      - who works at [LUXE GRAND TRAVEL](query)
+      - list all agents from [culture holidays](query)
+      - how many agents are in [Culture Holidays](query)
+      - agents from [LUXE GRAND](query)
+      - show all agents from [luxegrandtravel](query)
+      - list agents in [TechCorp](query)
+      - who is in [Demo Company](query)
+      - agents in [Culture Holidays](query)
+      - show agents from [LUXE GRAND TRAVEL](query)
+
+  - intent: query_by_nationality
+    examples: |
+      - show all agents from [India](query)
+      - list all [Indian](query) agents
+      - how many agents are from [United States](query)
+      - show agents by nationality
+      - agents from [American](query)
+      - show agents where nationality is [india](query)
+      - [British](query) agents
+      - list [Canadian](query) agents
+      - agents from [india](query)
+      - show all agents from [United States](query)
+
+  - intent: query_statistics
+    examples: |
+      - who is the most active agent
+      - which agent logged in most frequently
+      - most active agent
+      - who is the least active agent
+      - least active agent
+      - which agents have never logged in
+      - agents with no logins
+      - show top 5 agents by login count
+      - top agents
+      - how many agents are in the database
+      - total agents
+      - how many agents have not logged in
+      - agents logged in this month
+      - which agents logged in this month
+      - show top 5 agents
+      - top 5 agents by login
+      - how many agents have not logged in
+      - agents that have not logged in
+
+  - intent: query_date_range
+    examples: |
+      - who logged in between [2022-01-01](start_date) and [2022-12-31](end_date)
+      - logins between [2022-01-01](start_date) and [2022-12-31](end_date)
+      - show logins from [2022-05-01](start_date) to [2022-05-31](end_date)
+      - agents who logged in between [2020-01-01](start_date) and [2024-01-01](end_date)

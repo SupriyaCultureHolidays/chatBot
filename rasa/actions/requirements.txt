@@ -1,0 +1,6 @@
+rasa-sdk==3.6.2
+requests==2.31.0
+chromadb==0.4.22
+sentence-transformers==2.3.1
+spacy==3.7.2
+fuzzy-match==0.0.1
